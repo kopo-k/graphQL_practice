@@ -1,4 +1,6 @@
 import { ApolloServer } from "@apollo/server";
+import { ApolloServerPluginLandingPageLocalDefault } from "@apollo/server/plugin/landingPage/default";
+import { expressMiddleware } from "@as-integrations/express5";
 import express from "express";
 import cors from "cors";
 import { PrismaClient } from "@prisma/client";
@@ -79,7 +81,10 @@ async function startServer() {
   const server = new ApolloServer({
     typeDefs,
     resolvers,
-    plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+    plugins: [
+      ApolloServerPluginDrainHttpServer({ httpServer }),
+      ApolloServerPluginLandingPageLocalDefault({ embed: true }),
+    ],
   });
 
   await server.start();
@@ -88,17 +93,12 @@ async function startServer() {
   app.use(express.static(path.join(__dirname, "../public")));
 
   // GraphQL エンドポイント
-  app.use("/graphql", cors<cors.CorsRequest>(), express.json());
-  app.post("/graphql", async (req, res) => {
-    const result = await server.executeOperation({
-      query: req.body.query,
-      variables: req.body.variables,
-    });
-
-    if (result.body.kind === "single") {
-      res.json(result.body.singleResult);
-    }
-  });
+  app.use(
+    "/graphql",
+    cors<cors.CorsRequest>(),
+    express.json(),
+    expressMiddleware(server)
+  );
 
   const PORT = 4000;
   httpServer.listen(PORT, () => {
