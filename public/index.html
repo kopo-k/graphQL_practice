@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Todo App - GraphQL</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      max-width: 500px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .input-area {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #0056b3; }
+    .todo-list { list-style: none; padding: 0; }
+    .todo-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      background: white;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .todo-item.completed span {
+      text-decoration: line-through;
+      color: #888;
+    }
+    .todo-item span { flex: 1; }
+    .delete-btn {
+      background: #dc3545;
+      padding: 5px 10px;
+      font-size: 14px;
+    }
+    .delete-btn:hover { background: #c82333; }
+  </style>
+</head>
+<body>
+  <h1>Todo App</h1>
+
+  <div class="input-area">
+    <input type="text" id="todoInput" placeholder="新しいTodoを入力...">
+    <button onclick="addTodo()">追加</button>
+  </div>
+
+  <ul class="todo-list" id="todoList"></ul>
+
+  <script>
+    const API_URL = '/graphql';
+
+    // GraphQLクエリを実行
+    async function graphql(query, variables = {}) {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables })
+      });
+      const json = await res.json();
+      if (json.errors) throw new Error(json.errors[0].message);
+      return json.data;
+    }
+
+    // Todo一覧を取得して表示
+    async function loadTodos() {
+      const data = await graphql(`
+        query {
+          todos {
+            id
+            title
+            completed
+          }
+        }
+      `);
+      renderTodos(data.todos);
+    }
+
+    // Todoを描画
+    function renderTodos(todos) {
+      const list = document.getElementById('todoList');
+      list.innerHTML = todos.map(todo => `
+        <li class="todo-item ${todo.completed ? 'completed' : ''}">
+          <input type="checkbox" ${todo.completed ? 'checked' : ''}
+                 onchange="toggleTodo(${todo.id}, this.checked)">
+          <span>${todo.title}</span>
+          <button class="delete-btn" onclick="deleteTodo(${todo.id})">削除</button>
+        </li>
+      `).join('');
+    }
+
+    // Todoを追加
+    async function addTodo() {
+      const input = document.getElementById('todoInput');
+      const title = input.value.trim();
+      if (!title) return;
+
+      await graphql(`
+        mutation($title: String!) {
+          createTodo(title: $title) { id }
+        }
+      `, { title });
+
+      input.value = '';
+      loadTodos();
+    }
+
+    // Todo完了状態を切り替え
+    async function toggleTodo(id, completed) {
+      await graphql(`
+        mutation($id: Int!, $completed: Boolean!) {
+          updateTodo(id: $id, completed: $completed) { id }
+        }
+      `, { id, completed });
+      loadTodos();
+    }
+
+    // Todoを削除
+    async function deleteTodo(id) {
+      await graphql(`
+        mutation($id: Int!) {
+          deleteTodo(id: $id) { id }
+        }
+      `, { id });
+      loadTodos();
+    }
+
+    // Enterキーで追加
+    document.getElementById('todoInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') addTodo();
+    });
+
+    // 初期読み込み
+    loadTodos();
+  </script>
+</body>
+</html>

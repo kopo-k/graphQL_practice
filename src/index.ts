@@ -1,7 +1,13 @@
 import { ApolloServer } from "@apollo/server";
-import { startStandaloneServer } from "@apollo/server/standalone";
+import express from "express";
+import cors from "cors";
 import { PrismaClient } from "@prisma/client";
+import path from "path";
+import { fileURLToPath } from "url";
+import http from "http";
+import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHttpServer";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
 
 // GraphQL スキーマ定義
@@ -26,16 +32,14 @@ const typeDefs = `#graphql
   }
 `;
 
-// リゾルバー（GraphQLの各操作の実装）
+// リゾルバー
 const resolvers = {
   Query: {
-    // 全てのTodoを取得
     todos: async () => {
       return await prisma.todo.findMany({
         orderBy: { createdAt: "desc" },
       });
     },
-    // IDでTodoを取得
     todo: async (_: unknown, args: { id: number }) => {
       return await prisma.todo.findUnique({
         where: { id: args.id },
@@ -43,13 +47,11 @@ const resolvers = {
     },
   },
   Mutation: {
-    // 新しいTodoを作成
     createTodo: async (_: unknown, args: { title: string }) => {
       return await prisma.todo.create({
         data: { title: args.title },
       });
     },
-    // Todoを更新
     updateTodo: async (
       _: unknown,
       args: { id: number; title?: string; completed?: boolean }
@@ -62,7 +64,6 @@ const resolvers = {
         },
       });
     },
-    // Todoを削除
     deleteTodo: async (_: unknown, args: { id: number }) => {
       return await prisma.todo.delete({
         where: { id: args.id },
@@ -71,18 +72,39 @@ const resolvers = {
   },
 };
 
-// サーバー起動
 async function startServer() {
+  const app = express();
+  const httpServer = http.createServer(app);
+
   const server = new ApolloServer({
     typeDefs,
     resolvers,
+    plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
   });
 
-  const { url } = await startStandaloneServer(server, {
-    listen: { port: 4000 },
+  await server.start();
+
+  // 静的ファイル配信
+  app.use(express.static(path.join(__dirname, "../public")));
+
+  // GraphQL エンドポイント
+  app.use("/graphql", cors<cors.CorsRequest>(), express.json());
+  app.post("/graphql", async (req, res) => {
+    const result = await server.executeOperation({
+      query: req.body.query,
+      variables: req.body.variables,
+    });
+
+    if (result.body.kind === "single") {
+      res.json(result.body.singleResult);
+    }
   });
 
-  console.log(`🚀 Server ready at ${url}`);
+  const PORT = 4000;
+  httpServer.listen(PORT, () => {
+    console.log(`🚀 Server ready at http://localhost:${PORT}`);
+    console.log(`📊 GraphQL endpoint: http://localhost:${PORT}/graphql`);
+  });
 }
 
 startServer().catch(console.error);
